@@ -43,7 +43,7 @@ set "TOOLSET_ARG="
 if defined TOOLSET set "TOOLSET_ARG=/p:PlatformToolset=%TOOLSET%"
 
 echo [i] Compilando Metamorph-Kernel...
-"%MSBUILD%" "Metamorph-Kernel\Metamorph-Kernel.vcxproj" /nologo /m /v:minimal /p:Configuration=%CONFIG% /p:Platform=%PLATFORM% /p:SolutionDir="%SOLUTION_DIR%" /p:SkipPackageVerification=true /p:ApiValidator_Enable=false
+"%MSBUILD%" "Metamorph-Kernel\Metamorph-Kernel.vcxproj" /nologo /m /v:minimal /p:Configuration=%CONFIG% /p:Platform=%PLATFORM% /p:SolutionDir="%SOLUTION_DIR%" /p:SkipPackageVerification=true /p:ApiValidator_Enable=false /p:SignMode=Off
 if errorlevel 1 goto :fail
 
 echo [i] Compilando Metamorph-Usermode...
