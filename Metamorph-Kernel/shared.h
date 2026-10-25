@@ -141,23 +141,14 @@ typedef struct _TELEMETRY_UNIT_EXTENSION
 	int SmartMask;
 } TELEMETRY_UNIT_EXTENSION, * PTELEMETRY_UNIT_EXTENSION;
 
-// lkd> dt storport!_RAID_UNIT_EXTENSION -b
+// lkd> dt storport!_RAID_UNIT_EXTENSION -b (Windows 11 24H2+)
 typedef struct _RAID_UNIT_EXTENSION
 {
-	union
+	struct
 	{
-		struct
-		{
-			char Space[0x68]; // +0x068 Identity         : _STOR_SCSI_IDENTITY
-			STOR_SCSI_IDENTITY Identity;
-		} _Identity;
-
-		struct
-		{
-			char Space[0x7c8]; // +0x7c8 TelemetryExtension : _TELEMETRY_UNIT_EXTENSION
-			TELEMETRY_UNIT_EXTENSION Telemetry;
-		} _Smart;
-	};
+		char Space[0x70]; // +0x070 Identity         : _STOR_SCSI_IDENTITY (era 0x68 antes de 24H2)
+		STOR_SCSI_IDENTITY Identity;
+	} _Identity;
 } RAID_UNIT_EXTENSION, *PRAID_UNIT_EXTENSION;
 
 typedef __int64(__fastcall* RaidUnitRegisterInterfaces)(PRAID_UNIT_EXTENSION a1);

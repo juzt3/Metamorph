@@ -39,7 +39,7 @@ NTSTATUS Spoofer::LoadKernelmode() {
 
 	NTSTATUS exitCode = 0;
 	
-	if (!kdmapper::MapDriver(iqvw64e_device_handle, (BYTE*)driver, 0, 0, false, true, kdmapper::AllocationMode::AllocateMdl, false, NULL, &exitCode)) {
+	if (!kdmapper::MapDriver(iqvw64e_device_handle, (BYTE*)driver, 0, 0, false, true, kdmapper::AllocationMode::AllocatePool, false, NULL, &exitCode)) {
 		Error(XOR("Failed to map driver"));
 	
 		intel_driver::Unload(iqvw64e_device_handle);
