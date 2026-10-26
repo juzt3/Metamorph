@@ -163,7 +163,9 @@
     <ClInclude Include="modules\adapters.h" />
     <ClInclude Include="modules\arp.h" />
     <ClInclude Include="modules\disks.h" />
+    <ClInclude Include="modules\gpu.h" />
     <ClInclude Include="modules\smbios.h" />
+    <ClInclude Include="modules\volume.h" />
     <ClInclude Include="shared.h" />
     <ClInclude Include="spoofer.h" />
     <ClInclude Include="utils.h" />
@@ -175,7 +177,9 @@
     <ClCompile Include="modules\adapters.cpp" />
     <ClCompile Include="modules\arp.cpp" />
     <ClCompile Include="modules\disks.cpp" />
+    <ClCompile Include="modules\gpu.cpp" />
     <ClCompile Include="modules\smbios.cpp" />
+    <ClCompile Include="modules\volume.cpp" />
     <ClCompile Include="spoofer.cpp" />
     <ClCompile Include="utils.cpp" />
   </ItemGroup>

@@ -34,21 +34,28 @@ Tested on the 12/02/2024 for Windows 11 (10.0.22631).
 * Install Date
 * Machine GUID
 * Wallpaper (To default dark)
+* DirectX feature level
+* DNS domain
 
 ## Misc
 * ARP Table
 * Network Adapters MAC
-* SMBIOS
+* SMBIOS (BIOS, board, chassis, processor ID, memory)
 * Motherboard MAC
 * Disks
+* Volume serial
+* GPU UUID (nvidia-smi)
 
 # Limitations
 
 The code relies on Mutante by SamuelTulach which is as he stated, "heavily outdated". Therefore, consider this project as the same.
 There are still a few remaining detection vectors:
 * IP Address
-* User Security ID (SID)
+* CPUID vendor/brand and core topology (needs a hypervisor)
+* User Security ID (SID) — create a new local user
 * Network Adapters (Some may fail to change)
+* WMI-cached SMBIOS fields (Baseboard/Memory serials)
+* Monitor, HID/PCI names, OS build and disk sizes
 
 # Credits
 

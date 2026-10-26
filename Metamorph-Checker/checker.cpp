@@ -10,6 +10,11 @@
 #include "modules/sid.hpp"
 #include "modules/windows.hpp"
 #include "modules/smbios.hpp"
+#include "modules/volume.hpp"
+#include "modules/directx.hpp"
+#include "modules/domain.hpp"
+#include "modules/memory.hpp"
+#include "modules/gpu.hpp"
 
 BOOL Checker::Initialize() {
 
@@ -26,6 +31,11 @@ BOOL Checker::Initialize() {
 	LOAD_MODULE(Steam);
 	LOAD_MODULE(Windows);
 	LOAD_MODULE(Smbios);
+	LOAD_MODULE(Volume);
+	LOAD_MODULE(DirectX);
+	LOAD_MODULE(Domain);
+	LOAD_MODULE(Memory);
+	LOAD_MODULE(Gpu);
 	// LOAD_MODULE(Driver); Not very useful, disabling for now
 
 	WMIC::Disconnect();

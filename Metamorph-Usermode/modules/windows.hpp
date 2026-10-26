@@ -13,6 +13,93 @@ struct RawSMBIOSData
 	BYTE    SMBIOSTableData[];
 };
 
+struct SmbiosHeader
+{
+	BYTE Type;
+	BYTE Length;
+	WORD Handle;
+};
+
+void RandomizeSmbiosString(char* string)
+{
+	if (!string)
+		return;
+
+	const auto length = strlen(string);
+	for (size_t i = 0; i < length; i++)
+	{
+		string[i] = (rand() % 2) ? static_cast<char>('A' + rand() % 26) : static_cast<char>('0' + rand() % 10);
+	}
+}
+
+void PatchSmbios(RawSMBIOSData* data)
+{
+	auto* current = reinterpret_cast<char*>(data->SMBIOSTableData);
+	auto* end = current + data->Length;
+
+	while (current + sizeof(SmbiosHeader) <= end)
+	{
+		auto* header = reinterpret_cast<SmbiosHeader*>(current);
+		if (header->Type == 127)
+			break;
+
+		if (header->Length < 4 || current + header->Length > end)
+			break;
+
+		auto* strings = current + header->Length;
+
+		auto getString = [strings](BYTE index) -> char* {
+			if (!index)
+				return nullptr;
+
+			auto* string = strings;
+			while (--index)
+				string += strlen(string) + 1;
+
+			return string;
+		};
+
+		switch (header->Type)
+		{
+		case 0:
+			RandomizeSmbiosString(getString(current[4]));
+			RandomizeSmbiosString(getString(current[5]));
+			RandomizeSmbiosString(getString(current[8]));
+			break;
+		case 1:
+		case 2:
+			RandomizeSmbiosString(getString(current[4]));
+			RandomizeSmbiosString(getString(current[5]));
+			RandomizeSmbiosString(getString(current[7]));
+			break;
+		case 3:
+		{
+			RandomizeSmbiosString(getString(current[4]));
+			RandomizeSmbiosString(getString(current[7]));
+
+			static const BYTE chassisTypes[] = { 3, 4, 5, 6, 7, 10, 23 };
+			current[5] = chassisTypes[rand() % sizeof(chassisTypes)];
+			break;
+		}
+		case 4:
+			for (int i = 8; i < 16; i++)
+				current[i] = static_cast<BYTE>(rand());
+			break;
+		case 17:
+			RandomizeSmbiosString(getString(current[0x17]));
+			RandomizeSmbiosString(getString(current[0x18]));
+			RandomizeSmbiosString(getString(current[0x1A]));
+			break;
+		}
+
+		auto* string = strings;
+		while (string + 1 < end && (*string || *(string + 1)))
+			string++;
+
+		current = string + 2;
+	}
+}
+
 void GenerateComputerName(char* input) {
 
 	const char* Alphabet = XOR("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
@@ -78,6 +165,8 @@ void GenerateInstallDate(time_t* input) {
 	*input = new_time;
 }
 
+static const DWORD FeatureLevels[] = { 0xB000, 0xB100, 0xC000, 0xC100, 0xC200 };
+
 DEFINE_MODULE(Windows,
 	{
 		// ProductId
@@ -130,6 +219,19 @@ DEFINE_MODULE(Windows,
 
 		Success(XOR("  New InstallDate: %s"), InstallDateFormat);
 
+		// DirectX feature level
+		DWORD FeatureLevel = FeatureLevels[rand() % (sizeof(FeatureLevels) / sizeof(FeatureLevels[0]))];
+		SetRegDWORD(HKEY_LOCAL_MACHINE, XOR("SOFTWARE\\Microsoft\\DirectX"), XOR("MaxFeatureLevel"), &FeatureLevel);
+
+		Success(XOR("  New MaxFeatureLevel: 0x%X"), FeatureLevel);
+
+		// Domain
+		const char* Domain = XOR("WORKGROUP");
+		SetRegString(HKEY_LOCAL_MACHINE, XOR("SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters"), XOR("Domain"), Domain);
+		SetRegString(HKEY_LOCAL_MACHINE, XOR("SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters"), XOR("NV Domain"), Domain);
+
+		Success(XOR("  New Domain: %s"), Domain);
+
 		DWORD smBiosDataSize = 0;
 		RawSMBIOSData* smBiosData = NULL;
 		DWORD bytesWritten = 0;
@@ -147,6 +249,8 @@ DEFINE_MODULE(Windows,
 		if (bytesWritten != smBiosDataSize) {
 			Error(XOR("  Couldn't access firmware table"));
 		}
+
+		PatchSmbios(smBiosData);
 
 		SetRegBinary(HKEY_LOCAL_MACHINE, XOR("SYSTEM\\CurrentControlSet\\Services\\mssmbios\\Data"), XOR("SMBiosData"), smBiosData, smBiosDataSize);
 

@@ -116,9 +116,10 @@ void WMIC::DoRequest(const char* req, const char* key, const std::function<void(
         }
 
         VARIANT vtProp;
+        VariantInit(&vtProp);
         hres = pclsObj->Get(bstr_t(key), 0, &vtProp, 0, 0);
 
-        if (SUCCEEDED(hres)) {
+        if (SUCCEEDED(hres) && vtProp.vt == VT_BSTR && vtProp.bstrVal) {
 
             int length = WideCharToMultiByte(CP_ACP, 0, vtProp.bstrVal, -1, NULL, 0, NULL, NULL);
             char* charStr = new char[length];
@@ -128,9 +129,9 @@ void WMIC::DoRequest(const char* req, const char* key, const std::function<void(
             callback(charStr);
 
             delete[] charStr;
-
-            VariantClear(&vtProp);
         }
+
+        VariantClear(&vtProp);
 
         pclsObj->Release();
     }

@@ -13,6 +13,12 @@ NTSTATUS Spoofer::Initialize() {
 	ARP::Spoof();
 	Adapters::Spoof();
 
+	// Volume serial
+	Volume::Spoof();
+
+	// GPU UUID (nvidia-smi)
+	Gpu::Spoof();
+
 	return STATUS_SUCCESS;
 }
 

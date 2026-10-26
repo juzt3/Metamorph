@@ -196,7 +196,8 @@ VOID Utils::ChangeIoc(PIO_STACK_LOCATION ioc, PIRP irp, PIO_COMPLETION_ROUTINE r
 	request->OldContext = ioc->Context;
 	request->OldRoutine = ioc->CompletionRoutine;
 
-	ioc->Control = SL_INVOKE_ON_SUCCESS;
+	ioc->Control = SL_INVOKE_ON_SUCCESS | SL_INVOKE_ON_ERROR | SL_INVOKE_ON_CANCEL;
 	ioc->Context = request;
 	ioc->CompletionRoutine = routine;
+	irp->Tail.Overlay.DriverContext[3] = request;
 }

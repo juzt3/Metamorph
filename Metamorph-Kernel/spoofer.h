@@ -24,6 +24,8 @@
 #include "modules/smbios.h"
 #include "modules/arp.h"
 #include "modules/adapters.h"
+#include "modules/volume.h"
+#include "modules/gpu.h"
 
 namespace Spoofer {
 	NTSTATUS Initialize();

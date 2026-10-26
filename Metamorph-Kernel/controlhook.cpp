@@ -19,13 +19,13 @@ NTSTATUS ControlHook::AppendSwap(UNICODE_STRING name, PDRIVER_DISPATCH* swap, NT
 	return STATUS_SUCCESS;
 }
 
-// Swaps MJ device control and appends it to swap list on success
-NTSTATUS ControlHook::SwapControl(UNICODE_STRING driver, NTSTATUS(*hook)(PDEVICE_OBJECT device, PIRP irp), PDRIVER_DISPATCH* original) {
+// Swaps given MJ and appends it to swap list on success
+NTSTATUS ControlHook::Swap(UNICODE_STRING driver, UCHAR major, NTSTATUS(*hook)(PDEVICE_OBJECT device, PIRP irp), PDRIVER_DISPATCH* original) {
 	UNICODE_STRING str = driver;
 	PDRIVER_OBJECT object = 0;
 	NTSTATUS _status = ObReferenceObjectByName(&str, OBJ_CASE_INSENSITIVE, 0, 0, *IoDriverObjectType, KernelMode, 0, (PVOID*)&object);
 	if (NT_SUCCESS(_status)) {
-		AppendSwap(str, &object->MajorFunction[IRP_MJ_DEVICE_CONTROL], hook, original);
+		AppendSwap(str, &object->MajorFunction[major], hook, original);
 		ObDereferenceObject(object);
 	} else {
 		ERROR(XOR("Failed to get %wZ: %p !\n"), &str, _status);
@@ -34,6 +34,11 @@ NTSTATUS ControlHook::SwapControl(UNICODE_STRING driver, NTSTATUS(*hook)(PDEVICE
 	}
 
 	return STATUS_SUCCESS;
+}
+
+// Swaps MJ device control and appends it to swap list on success
+NTSTATUS ControlHook::SwapControl(UNICODE_STRING driver, NTSTATUS(*hook)(PDEVICE_OBJECT device, PIRP irp), PDRIVER_DISPATCH* original) {
+	return Swap(driver, IRP_MJ_DEVICE_CONTROL, hook, original);
 }
 
 NTSTATUS ControlHook::Shutdown() {

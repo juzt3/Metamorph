@@ -243,6 +243,29 @@ typedef struct
 	UINT8           L3CacheHandle[2];
 } SMBIOS_TYPE4;
 
+typedef struct
+{
+	SMBIOS_HEADER   Hdr;
+	UINT16          PhysicalMemoryArrayHandle;
+	UINT16          MemoryErrorInformationHandle;
+	UINT16          TotalWidth;
+	UINT16          DataWidth;
+	UINT16          Size;
+	UINT8           FormFactor;
+	UINT8           DeviceSet;
+	SMBIOS_STRING   DeviceLocator;
+	SMBIOS_STRING   BankLocator;
+	UINT8           MemoryType;
+	UINT16          TypeDetail;
+	UINT16          Speed;
+	SMBIOS_STRING   Manufacturer;
+	SMBIOS_STRING   SerialNumber;
+	SMBIOS_STRING   AssetTag;
+	SMBIOS_STRING   PartNumber;
+	UINT8           Attributes;
+	UINT32          ExtendedSize;
+} SMBIOS_TYPE17;
+
 typedef union
 {
 	SMBIOS_HEADER* Hdr;
@@ -251,6 +274,7 @@ typedef union
 	SMBIOS_TYPE2* Type2;
 	SMBIOS_TYPE3* Type3;
 	SMBIOS_TYPE4* Type4;
+	SMBIOS_TYPE17* Type17;
 	UINT8* Raw;
 } SMBIOS_STRUCTURE_POINTER;
 
