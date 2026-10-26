@@ -178,6 +178,7 @@
     <ClInclude Include="modules\scpsl.hpp" />
     <ClInclude Include="modules\steam.hpp" />
     <ClInclude Include="modules\windows.hpp" />
+    <ClInclude Include="modules\user.hpp" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="spoofer.h" />
     <ClInclude Include="util.h" />

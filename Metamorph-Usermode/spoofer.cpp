@@ -3,6 +3,7 @@
 #include "modules/windows.hpp"
 #include "modules/scpsl.hpp"
 #include "modules/steam.hpp"
+#include "modules/user.hpp"
 
 #include "driver.h"
 
@@ -14,6 +15,7 @@ NTSTATUS Spoofer::LoadUsermode() {
 	LOAD_MODULE(Windows);
 	LOAD_MODULE(SCPSL);
 	LOAD_MODULE(Steam);
+	LOAD_MODULE(User);
 
 	Success(XOR("Stopping services.."));
 

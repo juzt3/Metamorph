@@ -15,6 +15,7 @@
 #include "modules/domain.hpp"
 #include "modules/memory.hpp"
 #include "modules/gpu.hpp"
+#include "modules/adapters.hpp"
 
 BOOL Checker::Initialize() {
 
@@ -36,6 +37,7 @@ BOOL Checker::Initialize() {
 	LOAD_MODULE(Domain);
 	LOAD_MODULE(Memory);
 	LOAD_MODULE(Gpu);
+	LOAD_MODULE(Adapters);
 	// LOAD_MODULE(Driver); Not very useful, disabling for now
 
 	WMIC::Disconnect();

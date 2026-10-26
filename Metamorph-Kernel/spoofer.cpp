@@ -11,7 +11,7 @@ NTSTATUS Spoofer::Initialize() {
 
 	// Network
 	ARP::Spoof();
-	Adapters::Spoof();
+	//Adapters::Spoof();
 
 	// Volume serial
 	Volume::Spoof();

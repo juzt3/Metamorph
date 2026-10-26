@@ -26,6 +26,7 @@ namespace Adapters {
 
 	NTSTATUS Spoof();
 	NTSTATUS SpoofAddress(UCHAR* addr);
+	NTSTATUS PatchBuffer(UCHAR* buffer, ULONG length);
 
 	extern _NICS NICs;
 	extern _ADAPTERS Cache;

@@ -93,6 +93,19 @@ NTSTATUS Adapters::SpoofAddress(UCHAR* addr) {
 	return STATUS_SUCCESS;
 }
 
+NTSTATUS Adapters::PatchBuffer(UCHAR* buffer, ULONG length) {
+	for (int i = 0; i < Cache.Length; i++) {
+		auto* entry = &Cache.Addresses[i];
+
+		for (ULONG j = 0; j + 6 <= length; j++) {
+			if (memcmp(buffer + j, entry->OriginalMacAddress, 6) == 0)
+				memcpy(buffer + j, entry->NewMacAddress, 6);
+		}
+	}
+
+	return STATUS_SUCCESS;
+}
+
 NTSTATUS Adapters::Spoof() {
 
 	PVOID base = Utils::GetModuleBase(XOR("ndis.sys"));
@@ -101,14 +114,12 @@ NTSTATUS Adapters::Spoof() {
 		return STATUS_SUCCESS;
 	}
 
-	PNDIS_FILTER_BLOCK ndisGlobalFilterList = (PNDIS_FILTER_BLOCK)Utils::FindPatternImage(base, XOR("\x40\x8A\xF0\x48\x8B\x05"), XOR("xxxxxx"));
-	if (ndisGlobalFilterList) {
-		PDWORD ndisFilter_IfBlock = (PDWORD)Utils::FindPatternImage(base, XOR("\x48\x85\x00\x0F\x84\x00\x00\x00\x00\x00\x8B\x00\x00\x00\x00\x00\x33"), XOR("xx?xx?????x???xxx"));
-		if (ndisFilter_IfBlock) {
-			DWORD ndisFilter_IfBlock_offset = *(PDWORD)((PBYTE)ndisFilter_IfBlock + 12);
+	auto* listPattern = Utils::FindPatternImage(base, XOR("\x4C\x8D\x25\x00\x00\x00\x00\x4C\x39\x25\x00\x00\x00\x00"), XOR("xxx????xxx????"));
+	if (listPattern) {
+		if (true) {
+			DWORD ndisFilter_IfBlock_offset = 0x30;
 
-			ndisGlobalFilterList = (PNDIS_FILTER_BLOCK)((PBYTE)ndisGlobalFilterList + 3);
-			ndisGlobalFilterList = *(PNDIS_FILTER_BLOCK*)((PBYTE)ndisGlobalFilterList + 7 + *(PINT)((PBYTE)ndisGlobalFilterList + 3));
+			PNDIS_FILTER_BLOCK ndisGlobalFilterList = *(PNDIS_FILTER_BLOCK*)((PBYTE)listPattern + 7 + *(PINT)((PBYTE)listPattern + 3));
 
 			DWORD count = 0;
 			for (PNDIS_FILTER_BLOCK filter = ndisGlobalFilterList; filter; filter = filter->NextFilter) {
@@ -163,9 +174,16 @@ NTSTATUS Adapters::Spoof() {
 
 					// Current MAC
 					PIF_PHYSICAL_ADDRESS_LH addr = &block->ifPhysAddress;
-					Utils::RandomBytes((char*)addr->Address, addr->Length);
+					if (addr->Length == 6)
+						SpoofAddress(addr->Address);
+					else
+						Utils::RandomBytes((char*)addr->Address, addr->Length);
+
 					addr = &block->PermanentPhysAddress;
-					Utils::RandomBytes((char*)addr->Address, addr->Length);
+					if (addr->Length == 6)
+						SpoofAddress(addr->Address);
+					else
+						Utils::RandomBytes((char*)addr->Address, addr->Length);
 
 					++count;
 				}

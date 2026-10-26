@@ -145,6 +145,7 @@
     <ClInclude Include="checker.h" />
     <ClInclude Include="module.h" />
     <ClInclude Include="modules\arp.hpp" />
+    <ClInclude Include="modules\adapters.hpp" />
     <ClInclude Include="modules\directx.hpp" />
     <ClInclude Include="modules\disk.hpp" />
     <ClInclude Include="modules\domain.hpp" />
